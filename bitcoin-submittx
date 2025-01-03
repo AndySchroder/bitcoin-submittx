@@ -359,7 +359,7 @@ def parse_host_port(node, default_port):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Transaction submission tool")
-    parser.add_argument('network', metavar='NETWORK', help='Network to connect to (mainnet, regtest, testnet, btg-mainnet). This also determines the default port')
+    parser.add_argument('network', metavar='NETWORK', help='Network to connect to (mainnet, regtest, testnet). This also determines the default port')
     parser.add_argument('transactions', metavar='TXHEX', help='Serialized transactions to broadcast, separated by commas')
     parser.add_argument('nodes', metavar='NODES', help='Nodes to connect to, denoted either host or host:port', nargs='*')
     parser.add_argument('--proxy', '-p', help='SOCKS5 proxy to connect through', default=None)
