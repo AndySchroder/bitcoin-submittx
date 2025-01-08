@@ -23,6 +23,8 @@ from bitcoin.core.serialize import Hash
 from bitcoin.messages import msg_version, msg_inv, msg_ping, msg_verack, msg_pong, msg_tx, messagemap, MsgSerializable, MSG_TX, MSG_BLOCK
 from bitcoin.net import CInv
 
+from random import shuffle
+
 MIN_PROTO_VERSION = 60001 # Must support BIP0031 (ping/pong)
 PROTO_VERSION = 70015 # Supports BIP0031
 MY_SUBVERSION = b"/pynode:0.0.1/"
@@ -358,15 +360,16 @@ def parse_host_port(node, default_port):
 # Main program logic #
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Transaction submission tool")
-    parser.add_argument('network', metavar='NETWORK', help='Network to connect to (mainnet, regtest, testnet). This also determines the default port')
-    parser.add_argument('transactions', metavar='TXHEX', help='Serialized transactions to broadcast, separated by commas')
-    parser.add_argument('nodes', metavar='NODES', help='Nodes to connect to, denoted either host or host:port', nargs='*')
-    parser.add_argument('--proxy', '-p', help='SOCKS5 proxy to connect through', default=None)
-    parser.add_argument('--timeout', '-t', help='Number of seconds to wait before disconnecting from nodes (default is 10)', type=int, default=10)
+    parser = argparse.ArgumentParser(description="Bitcoin Transaction Submission Tool")
     parser.add_argument('--no-color', help='Use no terminal color in output', action='store_true', default=False)
-    parser.add_argument('--nodes-file', '-n', help='Read list of nodes from file (format: one per line)', default=None)
-    parser.add_argument('--tx-file', '-r', help='Read list of transactions from file (format: one per line)', default=None)
+    parser.add_argument('--proxy', '-p', help='SOCKS5 proxy to connect through. Set to `None` to not use a proxy.', default='127.0.0.1:9050')
+    parser.add_argument('--timeout', '-t', help='Number of seconds to wait before disconnecting from nodes', type=int, default=15)
+    parser.add_argument('--network', help='Network to connect to (mainnet, regtest, testnet). This also determines the default port',default='mainnet')
+    parser.add_argument('--nodes', help='List of nodes to connect to, denoted either host or host:port, separated by commas. If None and `nodes-file` is also None, DNS seeds will be used to populate the node list.',default=None)
+    parser.add_argument('--nodes-file', '-n', help='Read list of nodes from file (either host or host:port, separated one per line)', default=None)
+    parser.add_argument('--max-nodes',help='Max number of nodes to use in the node list. Set to 0 to select all nodes.',type=int,default=25)
+    parser.add_argument('--tx-file', '-r', help='Read list of transactions from file (encoded as hex, separated one per line)', default=None)
+    parser.add_argument('transactions', help='Serialized transactions (encoded as hex, separated by commas) to broadcast. If None and `tx-file` is also None, you will be prompted to enter (useful if you do not want the transactions stored in your `.bash_history` file).',default=None,nargs='?')
     return parser.parse_args()
 
 def read_lines(filename):
@@ -381,7 +384,7 @@ def main():
 
     timeout = args.timeout
     verbose = True # XXX flag=False doesn't avoid log output
-    if args.proxy is None:
+    if args.proxy.lower()=='none':
         proxy = None
     else:
         proxy = SOCKS5Proxy(parse_host_port(args.proxy, None))
@@ -402,26 +405,71 @@ def main():
     params = bitcoin.params
 
     # build transactions list
+
+    # get transactions from the command line
     hex_transactions = args.transactions.split(',') if args.transactions else []
+    print('Read %d transactions from the command line.' % (len(hex_transactions)))
+
+    # get transactions from tx_File
     if args.tx_file:
         lines = read_lines(args.tx_file)
         if verbose:
-            print('Read %d transactions from %s' % (len(lines), args.tx_file))
+            print('Read %d transactions from %s.' % (len(lines), args.tx_file))
         hex_transactions += lines
+    else:
+        print('No `tx-file` defined.')
+
+    if len(hex_transactions)==0:
+        UserInput = input('No transactions passed on the command line or in a `tx-file` to broadcast.\n\nPlease enter the serialized transactions (encoded as hex, separated by commas) that you would like to broadcast:\n\n')
+        hex_transactions += UserInput.split(',')
+        print('\n\n')
 
     transactions = {}
     for txdata in hex_transactions:
         txdata = unhexlify(txdata)
         tx = CTransaction.deserialize(txdata)
-        transactions[tx.GetTxid()] = tx
+        transactions[tx.GetTxid()] = tx             # this approach also happens to remove duplicate transactions
 
     # parse nodes list
-    nodes = [parse_host_port(node, params.DEFAULT_PORT) for node in args.nodes]
-    if args.nodes_file:
+    nodes=[]
+
+    if args.nodes is not None:
+        nodes += [parse_host_port(node, params.DEFAULT_PORT) for node in args.nodes.split(",")]
+        print('Read %d nodes from the command line' % (len(nodes)))
+
+    if args.nodes_file is not None:
         lines = read_lines(args.nodes_file)
         nodes += [parse_host_port(node, params.DEFAULT_PORT) for node in lines]
         if verbose:
             print('Read %d nodes from %s' % (len(lines), args.nodes_file))
+
+    if len(nodes)==0:
+        print('no nodes passed on the command line or in a `nodes-file`, looking in DNS seeds')
+        seeds=list(map(lambda x: x[1], params.DNS_SEEDS))
+        addresses=[]
+        for seed in seeds:
+            try:
+                NewAddresses=list(map( lambda x: x[4][0],socket.getaddrinfo(host=seed, port=0, family=socket.AF_INET, type=socket.SOCK_STREAM)))
+                print('got '+str(len(NewAddresses))+' nodes from '+seed)
+                addresses+=NewAddresses
+            except:
+                print('can not get any nodes from '+seed)
+
+        print('got a total of '+str(len(addresses))+ ' nodes from DNS seeds')
+        nodes += [parse_host_port(node, params.DEFAULT_PORT) for node in addresses]
+
+    # remove duplicate nodes
+    nodes=list(set(nodes))
+
+    # randomize node list so we don't get all nodes from the same DNS seed
+    shuffle(nodes)
+
+    if args.max_nodes>0 and args.max_nodes<len(nodes):
+        print('limiting to a maximum of '+str(args.max_nodes)+' nodes')
+        nodes=nodes[:args.max_nodes]
+
+    print('using a total of '+str(len(nodes))+ ' unique nodes from all sources')
+
 
     if verbose:
         print("Attempting broadcast of %i transactions to %i peers in %i seconds" % (len(transactions), len(nodes), timeout))
