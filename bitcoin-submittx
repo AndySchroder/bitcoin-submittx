@@ -373,7 +373,7 @@ def parse_host_port(node, default_port):
 # Main program logic #
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Bitcoin Transaction Submission Tool")
+    parser = argparse.ArgumentParser(description="Bitcoin Transaction Submission Tool",formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--loglevel', help='Set the log level. Choose WARNING or ERROR to receive no output under normal circumstances. Note: most log levels do not show connection failures as we can many times have a successful broadcast when only a small number of the total nodes that were contacted received the broadcast transaction(s). Use TRACE, DEBUG, or INFO4 to see connection failures.', type=str, choices=LogLevelChoices,default='INFO')
     parser.add_argument('--proxy', '-p', help='SOCKS5 proxy to connect through. Set to `None` to not use a proxy.', default='127.0.0.1:9050')
     parser.add_argument('--timeout', '-t', help='Number of seconds to wait before disconnecting from nodes', type=int, default=15)
