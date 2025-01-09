@@ -25,19 +25,89 @@ from bitcoin.net import CInv
 
 from random import shuffle
 
+# define constants
 MIN_PROTO_VERSION = 60001 # Must support BIP0031 (ping/pong)
 PROTO_VERSION = 70015 # Supports BIP0031
 MY_SUBVERSION = b"/pynode:0.0.1/"
 
-A = None
 
-class A_COLOR: # Terminal colors
-    reset='\x1b[0m'
-    err='\x1b[91m'
 
-class A_NOCOLOR: # No terminal colors
-    reset=''
-    err=''
+# setup logging
+
+import logging
+
+def addLoggingLevel(levelName, levelNum, methodName=None):      # from https://stackoverflow.com/questions/2183233/how-to-add-a-custom-loglevel-to-pythons-logging-facility/35804945#35804945
+    """
+    Comprehensively adds a new logging level to the `logging` module and the
+    currently configured logging class.
+
+    `levelName` becomes an attribute of the `logging` module with the value
+    `levelNum`. `methodName` becomes a convenience method for both `logging`
+    itself and the class returned by `logging.getLoggerClass()` (usually just
+    `logging.Logger`). If `methodName` is not specified, `levelName.lower()` is
+    used.
+
+    To avoid accidental clobberings of existing attributes, this method will
+    raise an `AttributeError` if the level name is already an attribute of the
+    `logging` module or if the method name is already present 
+
+    Example
+    -------
+    >>> addLoggingLevel('TRACE', logging.DEBUG - 5)
+    >>> logging.getLogger(__name__).setLevel("TRACE")
+    >>> logging.getLogger(__name__).trace('that worked')
+    >>> logging.trace('so did this')
+    >>> logging.TRACE
+    5
+
+    """
+    if not methodName:
+        methodName = levelName.lower()
+
+    if hasattr(logging, levelName):
+       raise AttributeError('{} already defined in logging module'.format(levelName))
+    if hasattr(logging, methodName):
+       raise AttributeError('{} already defined in logging module'.format(methodName))
+    if hasattr(logging.getLoggerClass(), methodName):
+       raise AttributeError('{} already defined in logger class'.format(methodName))
+
+    # This method was inspired by the answers to Stack Overflow post
+    # http://stackoverflow.com/q/2183233/2988730, especially
+    # http://stackoverflow.com/a/13638084/2988730
+    def logForLevel(self, message, *args, **kwargs):
+        if self.isEnabledFor(levelNum):
+            self._log(levelNum, message, args, **kwargs)
+    def logToRoot(message, *args, **kwargs):
+        logging.log(levelNum, message, *args, **kwargs)
+
+    logging.addLevelName(levelNum, levelName)
+    setattr(logging, levelName, levelNum)
+    setattr(logging.getLoggerClass(), methodName, logForLevel)
+    setattr(logging, methodName, logToRoot)
+
+# add more logging levels
+addLoggingLevel('INFO2', logging.INFO - 1)
+addLoggingLevel('INFO3', logging.INFO2 - 1)
+addLoggingLevel('INFO4', logging.INFO3 - 1)
+addLoggingLevel('TRACE', logging.DEBUG - 5)
+
+# set the logging format
+logging.basicConfig(format='%(levelname)-8s:  %(message)s')
+
+# get level names and their values
+LogLevelChoicesDictionary=logging._nameToLevel.copy()           # logging.getLevelNamesMapping() does not exist yet in python 3.10
+
+# remove some duplicate default values and unneeded values to simplify help
+LogLevelChoicesDictionary.pop('FATAL')
+LogLevelChoicesDictionary.pop('WARN')
+LogLevelChoicesDictionary.pop('CRITICAL')
+LogLevelChoicesDictionary.pop('NOTSET')
+
+# sort by value and then extract the names
+LogLevelChoices=tuple(zip(*sorted(LogLevelChoicesDictionary.items(), key=lambda x: x[1])))[0]
+
+
+
 
 
 ### Utility functions
@@ -65,10 +135,9 @@ class AddressType:
 
 # Node connection #
 class NodeConn(threading.Thread):
-    def __init__(self, proxy, dstaddr, dstport, log, peermgr,
+    def __init__(self, proxy, dstaddr, dstport, peermgr,
                  params, payload):
         threading.Thread.__init__(self)
-        self.log = log
         self.proxy = proxy
         self.peermgr = peermgr
         self.params = params
@@ -84,7 +153,7 @@ class NodeConn(threading.Thread):
         self.transactions = payload
 
     def run(self):
-        self.log.write("connecting to %s\n" % (self.dstname))
+        logging.info3("connecting to %s" % (self.dstname))
 
         try:
             # not using `create_connection` because that does not return the `sock` object until connection completes and the `sock.shutdown` and `sock.close` functions then can't work with the `join_all` function.
@@ -100,9 +169,9 @@ class NodeConn(threading.Thread):
 
         except Exception as e:
             if self.stopping:
-                self.log.write("never actually connected to %s:%i (%s)\n" % (self.dst[0], self.dst[1], e))
+                logging.info4("never actually connected to %s:%i (%s)" % (self.dst[0], self.dst[1], e))
             else:
-                self.log.write("error connecting to %s:%i (%s)\n" % (self.dst[0], self.dst[1], e))
+                logging.info4("error connecting to %s:%i (%s)" % (self.dst[0], self.dst[1], e))
                 self.handle_close()
             return
 
@@ -120,7 +189,7 @@ class NodeConn(threading.Thread):
         vt.strSubVer = MY_SUBVERSION
         self.send_message(vt)
 
-        self.log.write("connected to " + self.dstname + "\n")
+        logging.info3("connected to " + self.dstname)
         while True:
             try:
                 t = self.sock.recv(8192)
@@ -139,7 +208,7 @@ class NodeConn(threading.Thread):
         self.stopping=True
         if not self.sock:
             return
-        self.log.write("closing " + self.dstname + "\n")
+        logging.info3("closing " + self.dstname)
         self.recvbuf = b""
         try:
             self.sock.shutdown(socket.SHUT_RDWR)
@@ -169,10 +238,10 @@ class NodeConn(threading.Thread):
                 t = MsgSerializable.stream_deserialize(BytesIO(msg), self.ver_recv)
                 self.got_message(t)
             else:
-                self.log.write("UNKNOWN COMMAND %s %s\n" % (command, repr(msg)))
+                logging.debug("UNKNOWN COMMAND %s %s" % (command, repr(msg)))
 
     def send_message(self, message):
-        self.log.write("send %s\n" % repr(message))
+        logging.debug("send %s" % repr(message))
 
         tmsg = message.to_bytes()
 
@@ -183,7 +252,7 @@ class NodeConn(threading.Thread):
             self.handle_close()
 
     def start_broadcast(self):
-        self.log.write('Starting broadcast\n')
+        logging.info3('Starting broadcast')
         msg = msg_inv()
         for h in self.transactions.keys():
             inv = CInv()
@@ -197,15 +266,15 @@ class NodeConn(threading.Thread):
             self.send_message(msg_ping(self.ver_send))
 
         if message.command == b"reject":
-            self.log.write("recv %s%s%s\n" % (A.err,repr(message),A.reset))
+            logging.trace("recv %s" % (repr(message)))
         else:
-            self.log.write("recv %s\n" % repr(message))
+            logging.trace("recv %s" % repr(message))
 
         if message.command == b"version":
             self.ver_send = min(PROTO_VERSION, message.nVersion)
             if self.ver_send < MIN_PROTO_VERSION:
-                self.log.write(
-                    "Obsolete version %d, closing\n" % (self.ver_send,))
+                logging.debug(
+                    "Obsolete version %d, closing" % (self.ver_send,))
                 self.handle_close()
                 return
 
@@ -225,17 +294,17 @@ class NodeConn(threading.Thread):
         # TODO: count rejects
 
     def getdata_tx(self, txhash):
-        self.log.write('getdata_tx %s' % b2lx(txhash))
+        logging.trace('getdata_tx %s' % b2lx(txhash))
         if txhash in self.transactions:
             msg = msg_tx()
             msg.tx = self.transactions[txhash]
             self.send_message(msg)
             self.peermgr.tx_broadcasted(txhash)
         else:
-            self.log.write('Peer requested unknown transaction\n')
+            logging.debug('Peer requested unknown transaction')
 
     def getdata_block(self, blkhash):
-        self.log.write('Peer requested block - this is unsupported\n')
+        logging.debug('Peer requested block - this is unsupported')
 
     def getdata(self, message):
         if len(message.inv) > 50000:
@@ -248,8 +317,7 @@ class NodeConn(threading.Thread):
                 self.getdata_block(inv.hash)
 
 class PeerManager(object):
-    def __init__(self, log, proxy, params, payload):
-        self.log = log
+    def __init__(self, proxy, params, payload):
         self.params = params
         self.peers = []
         self.addrs = {}
@@ -260,7 +328,7 @@ class PeerManager(object):
 
     def add(self, host, port):
         self.tried[host] = True
-        c = NodeConn(self.proxy, host, port, self.log, self, self.params, self.payload)
+        c = NodeConn(self.proxy, host, port, self, self.params, self.payload)
         self.peers.append(c)
         return c
 
@@ -306,13 +374,13 @@ def parse_host_port(node, default_port):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Bitcoin Transaction Submission Tool")
-    parser.add_argument('--no-color', help='Use no terminal color in output', action='store_true', default=False)
+    parser.add_argument('--loglevel', help='Set the log level. Choose WARNING or ERROR to receive no output under normal circumstances. Note: most log levels do not show connection failures as we can many times have a successful broadcast when only a small number of the total nodes that were contacted received the broadcast transaction(s). Use TRACE, DEBUG, or INFO4 to see connection failures.', type=str, choices=LogLevelChoices,default='INFO')
     parser.add_argument('--proxy', '-p', help='SOCKS5 proxy to connect through. Set to `None` to not use a proxy.', default='127.0.0.1:9050')
     parser.add_argument('--timeout', '-t', help='Number of seconds to wait before disconnecting from nodes', type=int, default=15)
     parser.add_argument('--network', help='Network to connect to (mainnet, regtest, testnet). This also determines the default port',default='mainnet')
     parser.add_argument('--nodes', help='List of nodes to connect to, denoted either host or host:port, separated by commas. If None and `nodes-file` is also None, DNS seeds will be used to populate the node list.',default=None)
     parser.add_argument('--nodes-file', '-n', help='Read list of nodes from file (either host or host:port, separated one per line)', default=None)
-    parser.add_argument('--max-nodes',help='Max number of nodes to use in the node list. Set to 0 to select all nodes.',type=int,default=25)
+    parser.add_argument('--max-nodes',help='Max number of nodes to use in the node list. Set to 0 to select all nodes.',type=int,default=35)
     parser.add_argument('--tx-file', '-r', help='Read list of transactions from file (encoded as hex, separated one per line)', default=None)
     parser.add_argument('transactions', help='Serialized transactions (encoded as hex, separated by commas) to broadcast. If None and `tx-file` is also None, you will be prompted to enter (useful if you do not want the transactions stored in your `.bash_history` file).',default=None,nargs='?')
     return parser.parse_args()
@@ -327,28 +395,25 @@ def read_lines(filename):
 def main():
     args = parse_args()
 
-    log = sys.stdout
-    print()
+    logging.getLogger().setLevel(args.loglevel)
+
+    if logging.INFO >= logging.root.level:
+        print()
 
     timeout = args.timeout
-    verbose = True # XXX flag=False doesn't avoid log output
+
     if args.proxy.lower()=='none':
         proxy = None
     else:
-        log.write("using SOCKS5 proxy "+args.proxy+'\n')
+        logging.info2("using SOCKS5 proxy "+args.proxy)
         proxy = parse_host_port(args.proxy, None)
 
-    global A
-    if args.no_color:
-        A = A_NOCOLOR
-    else:
-        A = A_COLOR
 
 
     try:
         bitcoin.SelectParams(args.network)
     except:
-        log.write("invalid network %s\n" % args.network)
+        logging.error("invalid network %s" % args.network)
         sys.exit(1)
     params = bitcoin.params
 
@@ -356,21 +421,22 @@ def main():
 
     # get transactions from the command line
     hex_transactions = args.transactions.split(',') if args.transactions else []
-    print('Read %d transactions from the command line.' % (len(hex_transactions)))
+    logging.info2('Read %d transactions from the command line.' % (len(hex_transactions)))
 
     # get transactions from tx_File
     if args.tx_file:
         lines = read_lines(args.tx_file)
         if verbose:
-            print('Read %d transactions from %s.' % (len(lines), args.tx_file))
+            logging.info2('Read %d transactions from %s.' % (len(lines), args.tx_file))
         hex_transactions += lines
     else:
-        print('No `tx-file` defined.')
+        logging.info2('No `tx-file` defined.')
 
     if len(hex_transactions)==0:
+        print()
         UserInput = input('No transactions passed on the command line or in a `tx-file` to broadcast.\n\nPlease enter the serialized transactions (encoded as hex, separated by commas) that you would like to broadcast:\n\n')
         hex_transactions += UserInput.split(',')
-        print('\n\n')
+        print()
 
     transactions = {}
     for txdata in hex_transactions:
@@ -383,27 +449,27 @@ def main():
 
     if args.nodes is not None:
         nodes += [parse_host_port(node, params.DEFAULT_PORT) for node in args.nodes.split(",")]
-        print('Read %d nodes from the command line' % (len(nodes)))
+        logging.info2('Read %d nodes from the command line' % (len(nodes)))
 
     if args.nodes_file is not None:
         lines = read_lines(args.nodes_file)
         nodes += [parse_host_port(node, params.DEFAULT_PORT) for node in lines]
         if verbose:
-            print('Read %d nodes from %s' % (len(lines), args.nodes_file))
+            logging.info2('Read %d nodes from %s' % (len(lines), args.nodes_file))
 
     if len(nodes)==0:
-        print('no nodes passed on the command line or in a `nodes-file`, looking in DNS seeds')
+        logging.info2('no nodes passed on the command line or in a `nodes-file`, looking in DNS seeds')
         seeds=list(map(lambda x: x[1], params.DNS_SEEDS))
         addresses=[]
         for seed in seeds:
             try:
                 NewAddresses=list(map( lambda x: x[4][0],socket.getaddrinfo(host=seed, port=0, family=socket.AF_INET, type=socket.SOCK_STREAM)))
-                print('got '+str(len(NewAddresses))+' nodes from '+seed)
+                logging.info2('got '+str(len(NewAddresses))+' nodes from '+seed)
                 addresses+=NewAddresses
             except:
-                print('can not get any nodes from '+seed)
+                logging.info4('can not get any nodes from '+seed)
 
-        print('got a total of '+str(len(addresses))+ ' nodes from DNS seeds')
+        logging.info2('got a total of '+str(len(addresses))+ ' nodes from DNS seeds')
         nodes += [parse_host_port(node, params.DEFAULT_PORT) for node in addresses]
 
     # remove duplicate nodes
@@ -413,16 +479,15 @@ def main():
     shuffle(nodes)
 
     if args.max_nodes>0 and args.max_nodes<len(nodes):
-        print('limiting to a maximum of '+str(args.max_nodes)+' nodes')
+        logging.info2('limiting to a maximum of '+str(args.max_nodes)+' nodes')
         nodes=nodes[:args.max_nodes]
 
-    print('using a total of '+str(len(nodes))+ ' unique nodes from all sources')
+    logging.info2('using a total of '+str(len(nodes))+ ' unique nodes from all sources')
 
 
-    if verbose:
-        print("Attempting broadcast of %i transactions to %i peers in %i seconds" % (len(transactions), len(nodes), timeout))
+    logging.info("Attempting broadcast of %i transactions to %i peers in %i seconds" % (len(transactions), len(nodes), timeout))
 
-    peermgr = PeerManager(log, proxy, params, transactions)
+    peermgr = PeerManager(proxy, params, transactions)
     threads = []
 
     # connect to specified remote node(s)
@@ -442,14 +507,21 @@ def main():
             join_all(threads, timeout)
 
     start(timeout)
-    if verbose:
+
+    if logging.INFO >= logging.root.level:
         print()
-        print('Number of successful broadcasts:')
+        logging.info('Successful Broadcasts:')
+        logging.info('                            TXID                                           Peers')
+
+
     total = 0
     for (txhash, count) in peermgr.stats.items():
-        if verbose:
-            print('  %s %4i' % (b2lx(txhash), count))
+        logging.info('  %s        %4i' % (b2lx(txhash), count))
         total += count
+
+    if logging.INFO >= logging.root.level:
+        print()
+
 
     # non-zero exit status if at least one succesful submit
     exit(total == 0)
