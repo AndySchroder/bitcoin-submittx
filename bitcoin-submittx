@@ -9,7 +9,7 @@
 #
 
 import struct
-import socket
+import socket,socks
 import time
 import sys
 import threading
@@ -39,7 +39,6 @@ class A_NOCOLOR: # No terminal colors
     reset=''
     err=''
 
-# Proxy handling #
 
 ### Utility functions
 def recvall(s, n):
@@ -62,70 +61,7 @@ class AddressType:
     DOMAINNAME = 0x03
     IPV6 = 0x04
 
-class AbstractConnector(object):
-    def connect(self, sock, dst):
-        raise NotImplemented
 
-class DirectConnection(AbstractConnector):
-    '''
-    Dummy object representing a direct socket connection
-    '''
-    def connect(self, sock, dst):
-        sock.connect(dst)
-
-    def __repr__(self):
-        return 'DirectConnection'
-
-class SOCKS5Proxy(AbstractConnector):
-    '''
-    SOCKS5 proxy, as described in RFC1928
-    '''
-    def __init__(self, dst):
-        self.dst = dst
-
-    def connect(self, sock, dst):
-        '''SOCKS5 negotiation.
-        sock must already be connected to proxy.
-        '''
-        (host, port) = dst
-        # version, nmethods, support unauthenticated
-        sock.sendall(bytearray([0x05, 0x01, 0x00]))
-        # receive version, chosen method
-        rv = recvall(sock, 2)
-        if rv[0] != 0x05:
-            raise IOError('Invalid socks version %i in auth response' % rv[0])
-        if rv[1] != 0x00:
-            raise IOError('Unsupported authentication method %i' % rv[1])
-        # send CONNECT request
-        # ver,cmd,rsv,atyp,asize,addr[asize],port_hi,port_lo
-        assert(len(host) <= 255)
-        assert(port >= 0 and port < 0xffff)
-        sock.sendall(bytearray([0x05, Command.CONNECT, 0x00, AddressType.DOMAINNAME, len(host)]) +
-                     bytearray(host, 'utf8') +
-                     bytearray([port >> 8, port & 0xFF]))
-
-        # receive reponse, including bind address and port (which we ignore)
-        # ver,status,rsv,atyp,[addr],port_hi,port_lo
-        rv = recvall(sock, 4)
-        if rv[0] != 0x05:
-            raise IOError('Invalid socks version %i in response' % rv[0])
-        if rv[1] != 0x00:
-            raise IOError('SOCKS5 proxy error %i' % rv[1])
-        if rv[2] != 0x00:
-            raise IOError('SOCKS5 malformed response')
-        if rv[3] == AddressType.IPV4:
-            bindaddr = recvall(sock, 4)
-        elif rv[3] == AddressType.IPV6:
-            bindaddr = recvall(sock, 16)
-        elif rv[3] == AddressType.DOMAINNAME:
-            asize = recvall(sock, 1)[0]
-            bindaddr = recvall(sock, asize)
-        else:
-            raise IOError('SOCKS5 malformed response')
-        bindport = recvall(sock, 2)
-
-    def __repr__(self):
-        return 'Socks5Proxy(%s:%i)' % (self.dst)
 
 # Node connection #
 class NodeConn(threading.Thread):
@@ -143,24 +79,32 @@ class NodeConn(threading.Thread):
         self.dst = (dstaddr, dstport)
         self.dstname = '%s:%i' % self.dst
         self.sock = None
+        self.stopping=False
 
         self.transactions = payload
 
     def run(self):
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.log.write("connecting to %s through %s\n" % (self.dstname, self.proxy))
-        if self.proxy is not None:
-            hops = [(DirectConnection(), self.proxy.dst), (self.proxy, self.dst)]
-        else:
-            hops = [(DirectConnection(), self.dst)]
+        self.log.write("connecting to %s\n" % (self.dstname))
 
-        for method,dst in hops:
-            try:
-                method.connect(self.sock, dst)
-            except Exception as e:
-                self.log.write("error connecting to %s:%i through %s (%s)\n" % (dst[0], dst[1], method, e))
+        try:
+            # not using `create_connection` because that does not return the `sock` object until connection completes and the `sock.shutdown` and `sock.close` functions then can't work with the `join_all` function.
+            # could use a timeout on the socket itself, but this seems a bit more general.
+            # also, socks version of `create_connection` doesn't fall back to regular sockets when proxy_type=None, so that makes things less general (but actually still shorter) having to make two seperate calls
+            self.sock = socks.socksocket()
+
+            if self.proxy is not None:
+                (proxy_addr, proxy_port)=self.proxy
+                self.sock.set_proxy(proxy_type=socks.SOCKS5,addr=proxy_addr,port=proxy_port)
+
+            self.sock.connect(self.dst)
+
+        except Exception as e:
+            if self.stopping:
+                self.log.write("never actually connected to %s:%i (%s)\n" % (self.dst[0], self.dst[1], e))
+            else:
+                self.log.write("error connecting to %s:%i (%s)\n" % (self.dst[0], self.dst[1], e))
                 self.handle_close()
-                return
+            return
 
         # stuff version msg into sendbuf
         vt = msg_version(PROTO_VERSION)
@@ -192,9 +136,10 @@ class NodeConn(threading.Thread):
         self.handle_close()
 
     def handle_close(self):
+        self.stopping=True
         if not self.sock:
             return
-        self.log.write("close " + self.dstname + "\n")
+        self.log.write("closing " + self.dstname + "\n")
         self.recvbuf = b""
         try:
             self.sock.shutdown(socket.SHUT_RDWR)
@@ -382,12 +327,16 @@ def read_lines(filename):
 def main():
     args = parse_args()
 
+    log = sys.stdout
+    print()
+
     timeout = args.timeout
     verbose = True # XXX flag=False doesn't avoid log output
     if args.proxy.lower()=='none':
         proxy = None
     else:
-        proxy = SOCKS5Proxy(parse_host_port(args.proxy, None))
+        log.write("using SOCKS5 proxy "+args.proxy+'\n')
+        proxy = parse_host_port(args.proxy, None)
 
     global A
     if args.no_color:
@@ -395,7 +344,6 @@ def main():
     else:
         A = A_COLOR
 
-    log = sys.stdout
 
     try:
         bitcoin.SelectParams(args.network)
