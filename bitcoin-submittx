@@ -10,6 +10,7 @@
 
 import struct
 import socket,socks
+from secrets import token_bytes
 import time
 import sys
 import threading
@@ -118,6 +119,7 @@ class NodeConn(threading.Thread):
         self.dst = (dstaddr, dstport)
         self.peermgr = peermgr
         self.proxy = peermgr.proxy
+        self.proxyrandomize=peermgr.proxyrandomize
         self.params = peermgr.params
         self.transactions = peermgr.payload
 
@@ -140,7 +142,17 @@ class NodeConn(threading.Thread):
 
             if self.proxy is not None:
                 (proxy_addr, proxy_port)=self.proxy
-                self.sock.set_proxy(proxy_type=socks.SOCKS5,addr=proxy_addr,port=proxy_port)
+
+                if self.proxyrandomize:
+                    # randomize the username and password supplied to the SOCKS5 proxy for each socket in order to signal that separate streams should be used for each socket.
+                    # see also, https://spec.torproject.org/proposals/171-separate-streams.html
+                    username=token_bytes(16).hex()
+                    password=token_bytes(16).hex()
+                else:
+                    username=None
+                    password=None
+
+                self.sock.set_proxy(proxy_type=socks.SOCKS5,addr=proxy_addr,port=proxy_port,username=username,password=password)
 
             self.sock.connect(self.dst)
 
@@ -291,13 +303,14 @@ class NodeConn(threading.Thread):
                 self.getdata_block(inv.hash)
 
 class PeerManager(object):
-    def __init__(self, proxy, params, payload):
+    def __init__(self, proxy, proxyrandomize, params, payload):
         self.params = params
         self.peers = []
         self.tried = {}
         self.payload = payload
         self.stats = {x:0 for x in payload.keys()}
         self.proxy = proxy
+        self.proxyrandomize=proxyrandomize
 
     def add(self, host, port):
         self.tried[host] = True
@@ -351,6 +364,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Bitcoin Transaction Submission Tool",formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--loglevel', help='Set the log level. Choose WARNING or ERROR to receive no output under normal circumstances. Note: most log levels do not show connection failures as we can many times have a successful broadcast when only a small number of the total nodes that were contacted received the broadcast transaction(s). Use TRACE, DEBUG, or INFO4 to see connection failures.', type=str, choices=LogLevelChoices,default='INFO')
     parser.add_argument('--proxy', '-p', help='SOCKS5 proxy to connect through. Set to `None` to not use a proxy.', default='127.0.0.1:9050')
+    parser.add_argument('--proxyrandomize', help='If SOCKS5 proxy is defined, assume it is TOR and use stream isolation.',default=True,action=argparse.BooleanOptionalAction)
     parser.add_argument('--timeout', '-t', help='Number of seconds to wait before disconnecting from nodes', type=int, default=15)
     parser.add_argument('--network', help='Network to connect to (mainnet, regtest, testnet). This also determines the default port',default='mainnet')
     parser.add_argument('--nodes', help='List of nodes to connect to, denoted either host or host:port, separated by commas. If None and `nodes-file` is also None, DNS seeds will be used to populate the node list.',default=None)
@@ -382,6 +396,11 @@ def main():
     else:
         logging.info2("using SOCKS5 proxy "+args.proxy)
         proxy = parse_host_port(args.proxy, None)
+
+        if args.proxyrandomize:
+            logging.info2("Using TOR stream isolation")
+        else:
+            logging.info2("Not using TOR stream isolation")
 
     try:
         bitcoin.SelectParams(args.network)
@@ -462,7 +481,7 @@ def main():
 
     logging.info("Attempting broadcast of %i transactions to %i peers in %i seconds" % (len(transactions), len(nodes), timeout))
 
-    peermgr = PeerManager(proxy, params, transactions)
+    peermgr = PeerManager(proxy, args.proxyrandomize, params, transactions)
 
     # connect to specified remote node(s)
     for host,port in nodes:
