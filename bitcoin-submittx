@@ -113,22 +113,21 @@ LogLevelChoices=tuple(zip(*sorted(LogLevelChoicesDictionary.items(), key=lambda 
 
 # Node connection #
 class NodeConn(threading.Thread):
-    def __init__(self, proxy, dstaddr, dstport, peermgr,
-                 params, payload):
+    def __init__(self, dstaddr, dstport, peermgr):
         threading.Thread.__init__(self)
-        self.proxy = proxy
+        self.dst = (dstaddr, dstport)
         self.peermgr = peermgr
-        self.params = params
+        self.proxy = peermgr.proxy
+        self.params = peermgr.params
+        self.transactions = peermgr.payload
+
         self.recvbuf = b""
         self.ver_send = MIN_PROTO_VERSION
         self.ver_recv = MIN_PROTO_VERSION
         self.last_sent = 0
-        self.dst = (dstaddr, dstport)
         self.dstname = '%s:%i' % self.dst
         self.sock = None
         self.stopping=False
-
-        self.transactions = payload
 
     def run(self):
         logging.info3("connecting to %s" % (self.dstname))
@@ -150,7 +149,7 @@ class NodeConn(threading.Thread):
                 logging.info4("never actually connected to %s:%i (%s)" % (self.dst[0], self.dst[1], e))
             else:
                 logging.info4("error connecting to %s:%i (%s)" % (self.dst[0], self.dst[1], e))
-                self.handle_close()
+                self.stop()
             return
 
         # stuff version msg into sendbuf
@@ -174,15 +173,12 @@ class NodeConn(threading.Thread):
                 if len(t) <= 0:
                     raise ValueError
             except (IOError, ValueError):
-                self.handle_close()
+                self.stop()
                 return
             self.recvbuf += t
             self.got_data()
 
     def stop(self):
-        self.handle_close()
-
-    def handle_close(self):
         self.stopping=True
         if not self.sock:
             return
@@ -227,7 +223,7 @@ class NodeConn(threading.Thread):
             self.sock.sendall(tmsg)
             self.last_sent = time.time()
         except:
-            self.handle_close()
+            self.stop()
 
     def start_broadcast(self):
         logging.info3('Starting broadcast')
@@ -253,7 +249,7 @@ class NodeConn(threading.Thread):
             if self.ver_send < MIN_PROTO_VERSION:
                 logging.debug(
                     "Obsolete version %d, closing" % (self.ver_send,))
-                self.handle_close()
+                self.stop()
                 return
 
             self.send_message(msg_verack(self.ver_send))
@@ -286,7 +282,7 @@ class NodeConn(threading.Thread):
 
     def getdata(self, message):
         if len(message.inv) > 50000:
-            self.handle_close()
+            self.stop()
             return
         for inv in message.inv:
             if inv.type == MSG_TX:
@@ -298,7 +294,6 @@ class PeerManager(object):
     def __init__(self, proxy, params, payload):
         self.params = params
         self.peers = []
-        self.addrs = {}
         self.tried = {}
         self.payload = payload
         self.stats = {x:0 for x in payload.keys()}
@@ -306,13 +301,13 @@ class PeerManager(object):
 
     def add(self, host, port):
         self.tried[host] = True
-        c = NodeConn(self.proxy, host, port, self, self.params, self.payload)
+        c = NodeConn(host, port, self)
         self.peers.append(c)
-        return c
+        c.start()
 
-    def closeall(self):
+    def close_all(self):
         for peer in self.peers:
-            peer.handle_close()
+            peer.stop()
         self.peers = []
 
     def tx_broadcasted(self, txhash):
@@ -347,6 +342,8 @@ def parse_host_port(node, default_port):
             raise ValueError('Must provide port in %s' % node)
         port = default_port
     return (host,port)
+
+
 
 # Main program logic #
 
@@ -386,14 +383,13 @@ def main():
         logging.info2("using SOCKS5 proxy "+args.proxy)
         proxy = parse_host_port(args.proxy, None)
 
-
-
     try:
         bitcoin.SelectParams(args.network)
     except:
         logging.error("invalid network %s" % args.network)
         sys.exit(1)
     params = bitcoin.params
+
 
     # build transactions list
 
@@ -421,6 +417,7 @@ def main():
         txdata = unhexlify(txdata)
         tx = CTransaction.deserialize(txdata)
         transactions[tx.GetTxid()] = tx             # this approach also happens to remove duplicate transactions
+
 
     # parse nodes list
     nodes=[]
@@ -466,31 +463,22 @@ def main():
     logging.info("Attempting broadcast of %i transactions to %i peers in %i seconds" % (len(transactions), len(nodes), timeout))
 
     peermgr = PeerManager(proxy, params, transactions)
-    threads = []
 
     # connect to specified remote node(s)
     for host,port in nodes:
-        c = peermgr.add(host, port)
-        threads.append(c)
+        peermgr.add(host, port)
 
-    # program main loop
-    def start(timeout=None):
-        for t in threads:
-            t.start()
-        try:
-            join_all(threads, timeout)
-        finally:
-            for t in threads:
-                t.stop()
-            join_all(threads, timeout)
+    try:
+        join_all(peermgr.peers, timeout)
+    finally:
+        peermgr.close_all()
+        join_all(peermgr.peers, timeout)
 
-    start(timeout)
 
     if logging.INFO >= logging.root.level:
         print()
-        logging.info('Successful Broadcasts:')
-        logging.info('                            TXID                                           Peers')
-
+    logging.info('Successful Broadcasts:')
+    logging.info('                            TXID                                           Peers')
 
     total = 0
     for (txhash, count) in peermgr.stats.items():
