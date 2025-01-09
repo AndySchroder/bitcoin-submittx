@@ -110,28 +110,6 @@ LogLevelChoices=tuple(zip(*sorted(LogLevelChoicesDictionary.items(), key=lambda 
 
 
 
-### Utility functions
-def recvall(s, n):
-    '''Receive n bytes from a socket, or fail'''
-    rv = bytearray()
-    while n > 0:
-        d = s.recv(n)
-        if not d:
-            raise IOError('Unexpected end of stream')
-        rv.extend(d)
-        n -= len(d)
-    return rv
-
-### Protocol constants
-class Command:
-    CONNECT = 0x01
-
-class AddressType:
-    IPV4 = 0x01
-    DOMAINNAME = 0x03
-    IPV6 = 0x04
-
-
 
 # Node connection #
 class NodeConn(threading.Thread):
