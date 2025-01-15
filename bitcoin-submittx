@@ -30,7 +30,7 @@ from random import shuffle
 MIN_PROTO_VERSION = 60001 # Must support BIP0031 (ping/pong)
 PROTO_VERSION = 70015 # Supports BIP0031
 MY_SUBVERSION = b"/pynode:0.0.1/"
-
+TorProxy='127.0.0.1:9050'
 
 
 # setup logging
@@ -141,7 +141,7 @@ class NodeConn(threading.Thread):
             self.sock = socks.socksocket()
 
             if self.proxy is not None:
-                (proxy_addr, proxy_port)=self.proxy
+                (proxy_addr, proxy_port)=parse_host_port(self.proxy, None)
 
                 if self.proxyrandomize:
                     # randomize the username and password supplied to the SOCKS5 proxy for each socket in order to signal that separate streams should be used for each socket.
@@ -155,6 +155,15 @@ class NodeConn(threading.Thread):
                 self.sock.set_proxy(proxy_type=socks.SOCKS5,addr=proxy_addr,port=proxy_port,username=username,password=password)
 
             self.sock.connect(self.dst)
+
+        except socks.ProxyConnectionError:
+            # it is not just that this particular node is unavailable, the local proxy is not working, so all nodes will fail and we want to actually show an error at higher log levels and stop this thread.
+            ErrorMessage='unable to connect to SOCKS5 proxy '+self.proxy
+            if self.proxy==TorProxy:
+                ErrorMessage+=', do you have TOR installed and running?'
+            logging.error(ErrorMessage)
+            self.sock=None
+            return
 
         except Exception as e:
             if self.stopping:
@@ -363,7 +372,7 @@ def parse_host_port(node, default_port):
 def parse_args():
     parser = argparse.ArgumentParser(description="Bitcoin Transaction Submission Tool",formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--loglevel', help='Set the log level. Choose WARNING or ERROR to receive no output under normal circumstances. Note: most log levels do not show connection failures as we can many times have a successful broadcast when only a small number of the total nodes that were contacted received the broadcast transaction(s). Use TRACE, DEBUG, or INFO4 to see connection failures.', type=str, choices=LogLevelChoices,default='INFO')
-    parser.add_argument('--proxy', '-p', help='SOCKS5 proxy to connect through. Set to `None` to not use a proxy.', default='127.0.0.1:9050')
+    parser.add_argument('--proxy', '-p', help='SOCKS5 proxy to connect through. Set to `None` to not use a proxy.', default=TorProxy)
     parser.add_argument('--proxyrandomize', help='If SOCKS5 proxy is defined, assume it is TOR and use stream isolation.',default=True,action=argparse.BooleanOptionalAction)
     parser.add_argument('--timeout', '-t', help='Number of seconds to wait before disconnecting from nodes', type=int, default=15)
     parser.add_argument('--network', help='Network to connect to (mainnet, regtest, testnet). This also determines the default port',default='mainnet')
@@ -395,7 +404,7 @@ def main():
         proxy = None
     else:
         logging.info2("using SOCKS5 proxy "+args.proxy)
-        proxy = parse_host_port(args.proxy, None)
+        proxy = args.proxy
 
         if args.proxyrandomize:
             logging.info2("Using TOR stream isolation")
