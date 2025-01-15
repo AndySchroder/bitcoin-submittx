@@ -1,53 +1,61 @@
 What is this?
 --------------
 
-This is a stand-alone P2P transaction submission tool.
+This is a stand-alone P2P transaction submission tool for submitting transactions more privately.
 
-The motivation for this command is the `-walletbroadcast=0` command introduced
-in Bitcoin Core 0.11 (see the [release notes](https://github.com/bitcoin/bitcoin/blob/v0.11.0rc1/doc/release-notes.md#privacy-disable-wallet-transaction-broadcast).)
+By default, this application expects TOR to be installed. If you don't want to install and/or use TOR, use the `--proxy None` option.
 
-Dependencies
+The motivation for this command is the `-walletbroadcast=0` command line option introduced in Bitcoin Core 0.11 (see the [release notes](https://github.com/bitcoin/bitcoin/blob/v0.11.0rc1/doc/release-notes.md#privacy-disable-wallet-transaction-broadcast)). Using the `-walletbroadcast=0` command line option with bitcoin core in conjunction with this tool allows you to submit transactions over TOR, but still use clearnet for downloading public blockchain data and receiving unconfirmed transactions from others.
+
+
+Install
 ------------
 
-This tool uses `python-bitcoinlib`, which can be installed using:
+Install dependencies:
 
-```
-pip3 install --user python-bitcoinlib
-```
+`sudo apt update`
+`sudo apt install python3-pip tor`
 
-Alternatively, to go without installing anything, clone the [git repository](https://github.com/petertodd/python-bitcoinlib.git) and symlink the `bitcoin` directory inside into the root of this repository.
+Install bitcoin-submittx:
+
+`pip3 install git+https://github.com/AndySchroder/bitcoin-submittx`
+
 
 Usage
 --------
 
-Usage:
+```
+usage: bitcoin-submittx [-h] [--loglevel {TRACE,DEBUG,INFO4,INFO3,INFO2,INFO,WARNING,ERROR}] [--proxy PROXY] [--proxyrandomize | --no-proxyrandomize] [--timeout TIMEOUT] [--network NETWORK] [--nodes NODES]
+                        [--nodes-file NODES_FILE] [--max-nodes MAX_NODES] [--tx-file TX_FILE]
+                        [transactions]
 
-    usage: bitcoin-submittx [-h] [--proxy PROXY] [--timeout TIMEOUT] [--no-color]
-                            [--nodes-file NODES_FILE] [--tx-file TX_FILE]
-                            NETWORK TXHEX [NODES [NODES ...]]
+Bitcoin Transaction Submission Tool
 
-    Transaction submission tool
+positional arguments:
+  transactions          Serialized transactions (encoded as hex, separated by commas) to broadcast. If None and `tx-file` is also None, you will be prompted to enter (useful if you do not want the
+                        transactions stored in your `.bash_history` file). (default: None)
 
-    positional arguments:
-      NETWORK               Network to connect to (mainnet, regtest, testnet).
-                            This also determines the default port
-      TXHEX                 Serialized transactions to broadcast, separated by
-                            commas
-      NODES                 Nodes to connect to, denoted either host or host:port
-
-    optional arguments:
-      -h, --help            show this help message and exit
-      --proxy PROXY, -p PROXY
-                            SOCKS5 proxy to connect through
-      --timeout TIMEOUT, -t TIMEOUT
-                            Number of seconds to wait before disconnecting from
-                            nodes (default is 10)
-      --no-color            Use no terminal color in output
-      --nodes-file NODES_FILE, -n NODES_FILE
-                            Read list of nodes from file (format: one per line)
-      --tx-file TX_FILE, -r TX_FILE
-                            Read list of transactions from file (format: one per
-                            line)
+options:
+  -h, --help            show this help message and exit
+  --loglevel {TRACE,DEBUG,INFO4,INFO3,INFO2,INFO,WARNING,ERROR}
+                        Set the log level. Choose WARNING or ERROR to receive no output under normal circumstances. Note: most log levels do not show connection failures as we can many times have a successful
+                        broadcast when only a small number of the total nodes that were contacted received the broadcast transaction(s). Use TRACE, DEBUG, or INFO4 to see connection failures. (default: INFO)
+  --proxy PROXY, -p PROXY
+                        SOCKS5 proxy to connect through. Set to `None` to not use a proxy. (default: 127.0.0.1:9050)
+  --proxyrandomize, --no-proxyrandomize
+                        If SOCKS5 proxy is defined, assume it is TOR and use stream isolation. (default: True)
+  --timeout TIMEOUT, -t TIMEOUT
+                        Number of seconds to wait before disconnecting from nodes (default: 15)
+  --network NETWORK     Network to connect to (mainnet, regtest, testnet). This also determines the default port (default: mainnet)
+  --nodes NODES         List of nodes to connect to, denoted either host or host:port, separated by commas. If None and `nodes-file` is also None, DNS seeds will be used to populate the node list. (default:
+                        None)
+  --nodes-file NODES_FILE, -n NODES_FILE
+                        Read list of nodes from file (either host or host:port, separated one per line) (default: None)
+  --max-nodes MAX_NODES
+                        Max number of nodes to use in the node list. Set to 0 to select all nodes. (default: 35)
+  --tx-file TX_FILE, -r TX_FILE
+                        Read list of transactions from file (encoded as hex, separated one per line) (default: None)
+```
 
 The tool will connect to the provided nodes and announce the transactions. If the
 nodes subsequently request them within the timeout, they are sent.
@@ -55,31 +63,6 @@ nodes subsequently request them within the timeout, they are sent.
 The return status of the program will be 0 if at least one node requested the transaction, and 1
 otherwise.
 
-Example w/ Bitcoin Core
--------------------------
-
-- Send the transaction as normal, either e.g. through RPC `sendtoaddress` or the GUI
-```
-$ bitcoin-cli sendtoaddress mjqhocRebTHZRhkbkQs8Uzzb1T3GhEvEB4 0.25
-f91948e5...
-```
-- Using the transaction hash, retrieve the transaction data through RPC using `gettransaction` (NOT
-  `getrawtransaction`). The `hex` field of the result will contain the raw
-  hexadecimal representation of the transaction
-```
-$ bitcoin-cli gettransaction f91948e5...
-{
-  ...
-  "txid": "f91948e5...",
-  ...
-  "hex": "010000000..."
-}
-```
-- Provide the `hex` field as TXHEX to this tool. e.g.
-```
-$ bitcoin-submittx mainnet '010000000...' 127.0.0.1
-```
-(normally one would not submit the transaction to the localhost node, but this is just an illustrative example)
 
 Segwit support
 ---------------
@@ -92,21 +75,18 @@ when it sends the tx the node accepts it. This is probably not correct per
 BIP141. Patches welcome!
 
 
+Caveats
+-------
+- DNS seed resolution does not happen over TOR.
+- Don't know how to test if the TOR stream isolation is actually working properly, but it should be.
+- If multiple transactions are submitted and TOR stream isolation is used, they are batched together when submitted to all nodes and a seperate TOR circuit is not used for each transaction that is submitted to each node.
+
+
 TODOs and contribution ideas
 -----------------------------
 
-- Automatically fetch list of nodes to submit to
-  - possibly from DNS seeds (but this won't work behind Tor)
 - IPv6 support
 - Provide feedback of transaction reach, e.g. when connected to multiple nodes, it could monitor if the transaction comes back via another route.
-- Tor stream isolation (like `-proxyrandomize` in Bitcoin Core)
-- Multi-hop proxies, different proxy types?
-- Feature to handle incoming connections: can be handy when submitting transactions to nodes that are not listening for
-  e.g. testing
+- Check inputs and give clearer error messages if bad inputs provided.
 
-Other projects
----------------
 
-Some other projects that might be useful when working with bitcoin transactions at a low level:
-
-- [payment-proto-interface](https://github.com/achow101/payment-proto-interface) This is a simple (Python) application which allows you to interact with the Bitcoin payment protocol manually
