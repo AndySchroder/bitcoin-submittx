@@ -20,6 +20,12 @@ Install bitcoin-submittx:
 
 `pip3 install git+https://github.com/AndySchroder/bitcoin-submittx`
 
+If this is the first time you've installed a python script with pip, `bitcoin-submittx` may not be found and you will need to add `~/.local/bin` to your PATH variable. To do this, you can use the following command:
+
+`echo "export PATH=$HOME/.local/bin:$PATH">>~/.bashrc`
+
+and then open a new terminal to reload the `.bashrc` file. Alternatively, you can just always use `~/.local/bin/bitcoin-submittx` to execute the script instead of `bitcoin-submittx`.
+
 
 Usage
 --------
