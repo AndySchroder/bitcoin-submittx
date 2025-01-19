@@ -51,7 +51,7 @@ options:
   --proxyrandomize, --no-proxyrandomize
                         If SOCKS5 proxy is defined, assume it is TOR and use stream isolation. (default: True)
   --timeout TIMEOUT, -t TIMEOUT
-                        Number of seconds to wait before disconnecting from nodes (default: 15)
+                        Number of seconds to wait before disconnecting from nodes (default: 30)
   --network NETWORK     Network to connect to (mainnet, regtest, testnet). This also determines the default port (default: mainnet)
   --nodes NODES         List of nodes to connect to, denoted either host or host:port, separated by commas. If None and `nodes-file` is also None, DNS seeds will be used to populate the node list. (default:
                         None)
