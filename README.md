@@ -7,6 +7,8 @@ By default, this application expects TOR to be installed. If you don't want to i
 
 The motivation for this command is the `-walletbroadcast=0` command line option introduced in Bitcoin Core 0.11 (see the [release notes](https://github.com/bitcoin/bitcoin/blob/v0.11.0rc1/doc/release-notes.md#privacy-disable-wallet-transaction-broadcast)). Using the `-walletbroadcast=0` command line option with bitcoin core in conjunction with this tool allows you to submit transactions over TOR, but still use clearnet for downloading public blockchain data and receiving unconfirmed transactions from others.
 
+This tool also features scanning a QR code of a signed transaction from Sparrow Wallet.
+
 
 Install
 ------------
@@ -37,17 +39,20 @@ usage: bitcoin-submittx [-h]
                         [--proxyrandomize | --no-proxyrandomize]
                         [--timeout TIMEOUT] [--network NETWORK]
                         [--nodes NODES] [--nodes-file NODES_FILE]
-                        [--max-nodes MAX_NODES] [--tx-file TX_FILE] [--yes]
+                        [--max-nodes MAX_NODES] [--tx-file TX_FILE]
+                        [--QR-scan] [--camera-id CAMERA_ID]
+                        [--camera-resolution CAMERA_RESOLUTION]
+                        [--camera-mirrored] [--yes]
                         [transactions]
 
 Bitcoin Transaction Submission Tool
 
 positional arguments:
   transactions          Serialized transactions (encoded as hex, separated by
-                        commas) to broadcast. If None and `tx-file` is also
-                        None, you will be prompted to enter (useful if you do
-                        not want the transactions stored in your
-                        `.bash_history` file). (default: None)
+                        commas) to broadcast. If None, `tx-file` is also None,
+                        and `--QR-scan` is not used, you will be prompted to
+                        enter (useful if you do not want the transactions
+                        stored in your `.bash_history` file). (default: None)
 
 options:
   -h, --help            show this help message and exit
@@ -84,6 +89,18 @@ options:
   --tx-file TX_FILE, -r TX_FILE
                         Read list of transactions from file (encoded as hex,
                         separated one per line) (default: None)
+  --QR-scan             Scan a QR code of a signed transaction from Sparrow
+                        Wallet. Note: This option is not compatible with
+                        passing transactions on the command line or when using
+                        a `tx-file`. (default: False)
+  --camera-id CAMERA_ID
+                        Camera id of the camera that you would like to use to
+                        scan a QR code with. (default: 0)
+  --camera-resolution CAMERA_RESOLUTION
+                        Camera resolution that you would like to use to scan a
+                        QR code with. (default: 1280x720)
+  --camera-mirrored     Mirror the camera when scanning QR codes. (default:
+                        False)
   --yes, -y             Do not prompt to review and confirm transactions
                         before submitting. (default: False)
 ```

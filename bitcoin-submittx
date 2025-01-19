@@ -26,6 +26,12 @@ from bitcoin.net import CInv
 
 from random import shuffle
 
+# needed for QR code reading
+import cv2
+from ur.ur_decoder import URDecoder
+from cbor2 import loads
+# needed for QR code reading
+
 # define constants
 MIN_PROTO_VERSION = 60001 # Must support BIP0031 (ping/pong)
 PROTO_VERSION = 70015 # Supports BIP0031
@@ -387,8 +393,12 @@ def parse_args():
     parser.add_argument('--nodes-file', '-n', help='Read list of nodes from file (either host or host:port, separated one per line)', default=None)
     parser.add_argument('--max-nodes',help='Max number of nodes to use in the node list. Set to 0 to select all nodes.',type=int,default=35)
     parser.add_argument('--tx-file', '-r', help='Read list of transactions from file (encoded as hex, separated one per line)', default=None)
+    parser.add_argument('--QR-scan', help='Scan a QR code of a signed transaction from Sparrow Wallet. Note: This option is not compatible with passing transactions on the command line or when using a `tx-file`.',default=False,action='store_true')
+    parser.add_argument('--camera-id', help='Camera id of the camera that you would like to use to scan a QR code with.',type=int,default='0')
+    parser.add_argument('--camera-resolution', help='Camera resolution that you would like to use to scan a QR code with.',default='1280x720')
+    parser.add_argument('--camera-mirrored', help='Mirror the camera when scanning QR codes.',default=False,action='store_true')
     parser.add_argument('--yes','-y', help='Do not prompt to review and confirm transactions before submitting.',default=False,action='store_true')
-    parser.add_argument('transactions', help='Serialized transactions (encoded as hex, separated by commas) to broadcast. If None and `tx-file` is also None, you will be prompted to enter (useful if you do not want the transactions stored in your `.bash_history` file).',default=None,nargs='?')
+    parser.add_argument('transactions', help='Serialized transactions (encoded as hex, separated by commas) to broadcast. If None, `tx-file` is also None, and `--QR-scan` is not used, you will be prompted to enter (useful if you do not want the transactions stored in your `.bash_history` file).',default=None,nargs='?')
     return parser.parse_args()
 
 def read_lines(filename):
@@ -441,26 +451,101 @@ def main():
     else:
         logging.info2('No `tx-file` defined.')
 
-    if len(hex_transactions)==0:
-        print()
-        UserInput = input('No transactions passed on the command line or in a `tx-file` to broadcast.\n\nPlease enter the serialized transactions (encoded as hex, separated by commas) that you would like to broadcast:\n\n')
-        hex_transactions += UserInput.split(',')
-        print()
 
-    transactions = {}
-    for txdata in hex_transactions:
-        txdata = unhexlify(txdata)
-        tx = CTransaction.deserialize(txdata)
-        transactions[tx.GetTxid()] = tx             # this approach also happens to remove duplicate transactions
+    if args.QR_scan and len(hex_transactions)==0:
+        print('No transactions passed on the command line or in a `tx-file` to broadcast and `--QR-scan` used.')
+        print('Using camera to scan QR code.')
 
+        logging.info2('Camera resolution set to '+args.camera_resolution)
+        (width, height) = [int(x) for x in args.camera_resolution.split('x')]
 
-    AlwaysPrintIfNotTrueElseLogInfo3(args.yes,'\nThe following transactions are about to be submitted:\n')
-    for txdata in hex_transactions:
-        AlwaysPrintIfNotTrueElseLogInfo3(args.yes,txdata+'\n')
-    if not args.yes and input('Would you like to continue? Please enter the word `yes` to continue, anything else to abort: ').lower()!='yes':
-        logging.error('`yes` not received, aborting.')
+        # setup camera capture
+        capture = cv2.VideoCapture(args.camera_id)
+        logging.info2('Using camera id '+str(args.camera_id))
+        capture.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        capture.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+
+        # setup QR code decoder
+        detector = cv2.QRCodeDetector()
+
+        # setup UR decoder
+        decoder = URDecoder()
+
+        # open a window for previewing the camera
+        BaseWindowName='Scan Signed Transaction QR Code From Sparrow Wallet'
+        if args.camera_mirrored:
+            logging.info2('Mirroring the camera image preview.')
+        # documentation for these WND and WINDOW flags is very confusing ! ! ! !
+        cv2.namedWindow(BaseWindowName, cv2.WINDOW_GUI_NORMAL)
+        cv2.setWindowProperty(BaseWindowName, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL)
+        cv2.setWindowProperty(BaseWindowName, cv2.WND_PROP_AUTOSIZE, cv2.WINDOW_NORMAL)
+        AspectRatio=width/height
+        InitialWindowWidth=1000
+        cv2.resizeWindow(BaseWindowName,InitialWindowWidth,int(InitialWindowWidth/AspectRatio))
+        cv2.moveWindow(BaseWindowName,20,20)
+
+        while True:
+
+            # read the image frame from the camera
+            _, image = capture.read()
+
+            # detect and decode the QR code
+            QR_data, _, _ = detector.detectAndDecode(image) 
+
+            # preview what the camera is seeing so you can aim properly
+            if args.camera_mirrored:
+                image=cv2.flip(image, 1)
+            cv2.imshow(BaseWindowName, image)
+
+            # show % complete in the camera preview window title for animated QR codes
+            cv2.setWindowTitle(BaseWindowName, BaseWindowName+" ("+str(int(round(decoder.estimated_percent_complete() * 100)))+"% complete)")
+
+            # figure out if the user wants to cancel scanning and quit
+            KeyPressed=cv2.waitKey(1)
+            if KeyPressed == ord("q") or KeyPressed == 27 or cv2.getWindowProperty(BaseWindowName, cv2.WND_PROP_VISIBLE) == 0:      # 27 is ESC
+                print('Camera window closed.')
+                break
+
+            if QR_data:		# there is a QRCode in the image
+
+                # process the new data. if the QR code doesn't include UR encoded data, it seems to be just ignored.
+                decoder.receive_part(QR_data)
+
+                if decoder.is_complete():
+                    if decoder.result.type=='bytes':
+                        hex_transactions += [loads(decoder.result.cbor).hex()]
+                    else:
+                        logging.error('Invalid data type received from QR code')
+
+                    break
+
+        capture.release() 
+        cv2.destroyAllWindows()
+
+    elif args.QR_scan and len(hex_transactions)!=0:
+        logging.error('The `--QR-scan` option is not compatible with passing transactions on the command line or when using a `tx-file`.')
         exit(1)
+    elif len(hex_transactions)==0:
+        print()
+        UserInput = input('No transactions passed on the command line or in a `tx-file` to broadcast and `--QR-scan` not used.\n\nPlease enter the serialized transactions (encoded as hex, separated by commas) that you would like to broadcast:\n\n')
+        if UserInput !='':
+            hex_transactions += UserInput.split(',')
+        print()
 
+    if hex_transactions:
+        transactions = {}
+        AlwaysPrintIfNotTrueElseLogInfo3(args.yes,'\nThe following transactions are about to be submitted:\n')
+        for txdata in hex_transactions:
+            txdata = unhexlify(txdata)
+            tx = CTransaction.deserialize(txdata)
+            transactions[tx.GetTxid()] = tx             # this approach also happens to remove duplicate transactions
+            AlwaysPrintIfNotTrueElseLogInfo3(args.yes,'txid: '+tx.GetTxid()[::-1].hex()+'\ntx_hex: \n'+txdata.hex()+'\n\n')
+        if not args.yes and input('Would you like to continue? Please enter the word `yes` to continue, anything else to abort: ').lower()!='yes':
+            logging.error('`yes` not received, aborting.')
+            exit(1)
+    else:
+        logging.error('nothing was input to broadcast, aborting')
+        exit(1)
 
     # parse nodes list
     nodes=[]
