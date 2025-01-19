@@ -31,36 +31,61 @@ Usage
 --------
 
 ```
-usage: bitcoin-submittx [-h] [--loglevel {TRACE,DEBUG,INFO4,INFO3,INFO2,INFO,WARNING,ERROR}] [--proxy PROXY] [--proxyrandomize | --no-proxyrandomize] [--timeout TIMEOUT] [--network NETWORK] [--nodes NODES]
-                        [--nodes-file NODES_FILE] [--max-nodes MAX_NODES] [--tx-file TX_FILE]
+usage: bitcoin-submittx [-h]
+                        [--loglevel {TRACE,DEBUG,INFO4,INFO3,INFO2,INFO,WARNING,ERROR}]
+                        [--proxy PROXY]
+                        [--proxyrandomize | --no-proxyrandomize]
+                        [--timeout TIMEOUT] [--network NETWORK]
+                        [--nodes NODES] [--nodes-file NODES_FILE]
+                        [--max-nodes MAX_NODES] [--tx-file TX_FILE] [--yes]
                         [transactions]
 
 Bitcoin Transaction Submission Tool
 
 positional arguments:
-  transactions          Serialized transactions (encoded as hex, separated by commas) to broadcast. If None and `tx-file` is also None, you will be prompted to enter (useful if you do not want the
-                        transactions stored in your `.bash_history` file). (default: None)
+  transactions          Serialized transactions (encoded as hex, separated by
+                        commas) to broadcast. If None and `tx-file` is also
+                        None, you will be prompted to enter (useful if you do
+                        not want the transactions stored in your
+                        `.bash_history` file). (default: None)
 
 options:
   -h, --help            show this help message and exit
   --loglevel {TRACE,DEBUG,INFO4,INFO3,INFO2,INFO,WARNING,ERROR}
-                        Set the log level. Choose WARNING or ERROR to receive no output under normal circumstances. Note: most log levels do not show connection failures as we can many times have a successful
-                        broadcast when only a small number of the total nodes that were contacted received the broadcast transaction(s). Use TRACE, DEBUG, or INFO4 to see connection failures. (default: INFO)
+                        Set the log level. Choose WARNING or ERROR to receive
+                        no output under normal circumstances. Note: most log
+                        levels do not show connection failures as we can many
+                        times have a successful broadcast when only a small
+                        number of the total nodes that were contacted received
+                        the broadcast transaction(s). Use TRACE, DEBUG, or
+                        INFO4 to see connection failures. (default: INFO)
   --proxy PROXY, -p PROXY
-                        SOCKS5 proxy to connect through. Set to `None` to not use a proxy. (default: 127.0.0.1:9050)
+                        SOCKS5 proxy to connect through. Set to `None` to not
+                        use a proxy. (default: 127.0.0.1:9050)
   --proxyrandomize, --no-proxyrandomize
-                        If SOCKS5 proxy is defined, assume it is TOR and use stream isolation. (default: True)
+                        If SOCKS5 proxy is defined, assume it is TOR and use
+                        stream isolation. (default: True)
   --timeout TIMEOUT, -t TIMEOUT
-                        Number of seconds to wait before disconnecting from nodes (default: 30)
-  --network NETWORK     Network to connect to (mainnet, regtest, testnet). This also determines the default port (default: mainnet)
-  --nodes NODES         List of nodes to connect to, denoted either host or host:port, separated by commas. If None and `nodes-file` is also None, DNS seeds will be used to populate the node list. (default:
-                        None)
+                        Number of seconds to wait before disconnecting from
+                        nodes (default: 30)
+  --network NETWORK     Network to connect to (mainnet, regtest, testnet).
+                        This also determines the default port (default:
+                        mainnet)
+  --nodes NODES         List of nodes to connect to, denoted either host or
+                        host:port, separated by commas. If None and `nodes-
+                        file` is also None, DNS seeds will be used to populate
+                        the node list. (default: None)
   --nodes-file NODES_FILE, -n NODES_FILE
-                        Read list of nodes from file (either host or host:port, separated one per line) (default: None)
+                        Read list of nodes from file (either host or
+                        host:port, separated one per line) (default: None)
   --max-nodes MAX_NODES
-                        Max number of nodes to use in the node list. Set to 0 to select all nodes. (default: 35)
+                        Max number of nodes to use in the node list. Set to 0
+                        to select all nodes. (default: 35)
   --tx-file TX_FILE, -r TX_FILE
-                        Read list of transactions from file (encoded as hex, separated one per line) (default: None)
+                        Read list of transactions from file (encoded as hex,
+                        separated one per line) (default: None)
+  --yes, -y             Do not prompt to review and confirm transactions
+                        before submitting. (default: False)
 ```
 
 The tool will connect to the provided nodes and announce the transactions. If the

@@ -366,6 +366,13 @@ def parse_host_port(node, default_port):
     return (host,port)
 
 
+def AlwaysPrintIfNotTrueElseLogInfo3(Test,String):
+    if not Test:
+        print(String)
+    else:
+        logging.info3(String)
+
+
 
 # Main program logic #
 
@@ -380,6 +387,7 @@ def parse_args():
     parser.add_argument('--nodes-file', '-n', help='Read list of nodes from file (either host or host:port, separated one per line)', default=None)
     parser.add_argument('--max-nodes',help='Max number of nodes to use in the node list. Set to 0 to select all nodes.',type=int,default=35)
     parser.add_argument('--tx-file', '-r', help='Read list of transactions from file (encoded as hex, separated one per line)', default=None)
+    parser.add_argument('--yes','-y', help='Do not prompt to review and confirm transactions before submitting.',default=False,action='store_true')
     parser.add_argument('transactions', help='Serialized transactions (encoded as hex, separated by commas) to broadcast. If None and `tx-file` is also None, you will be prompted to enter (useful if you do not want the transactions stored in your `.bash_history` file).',default=None,nargs='?')
     return parser.parse_args()
 
@@ -428,8 +436,7 @@ def main():
     # get transactions from tx_File
     if args.tx_file:
         lines = read_lines(args.tx_file)
-        if verbose:
-            logging.info2('Read %d transactions from %s.' % (len(lines), args.tx_file))
+        logging.info2('Read %d transactions from %s.' % (len(lines), args.tx_file))
         hex_transactions += lines
     else:
         logging.info2('No `tx-file` defined.')
@@ -447,6 +454,14 @@ def main():
         transactions[tx.GetTxid()] = tx             # this approach also happens to remove duplicate transactions
 
 
+    AlwaysPrintIfNotTrueElseLogInfo3(args.yes,'\nThe following transactions are about to be submitted:\n')
+    for txdata in hex_transactions:
+        AlwaysPrintIfNotTrueElseLogInfo3(args.yes,txdata+'\n')
+    if not args.yes and input('Would you like to continue? Please enter the word `yes` to continue, anything else to abort: ').lower()!='yes':
+        logging.error('`yes` not received, aborting.')
+        exit(1)
+
+
     # parse nodes list
     nodes=[]
 
@@ -457,8 +472,7 @@ def main():
     if args.nodes_file is not None:
         lines = read_lines(args.nodes_file)
         nodes += [parse_host_port(node, params.DEFAULT_PORT) for node in lines]
-        if verbose:
-            logging.info2('Read %d nodes from %s' % (len(lines), args.nodes_file))
+        logging.info2('Read %d nodes from %s' % (len(lines), args.nodes_file))
 
     if len(nodes)==0:
         logging.info2('no nodes passed on the command line or in a `nodes-file`, looking in DNS seeds')
