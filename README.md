@@ -16,7 +16,7 @@ Install
 Install dependencies:
 
 `sudo apt update`
-`sudo apt install python3-pip tor`
+`sudo apt install python3-pip tor git libgl1 libglib2.0-0`
 
 Install bitcoin-submittx:
 
