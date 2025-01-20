@@ -16,6 +16,7 @@ Install
 Install dependencies:
 
 `sudo apt update`
+
 `sudo apt install python3-pip tor git libgl1 libglib2.0-0`
 
 Install bitcoin-submittx:
@@ -26,7 +27,7 @@ If this is the first time you've installed a python script with pip, `bitcoin-su
 
 `echo "export PATH=$HOME/.local/bin:$PATH">>~/.bashrc`
 
-and then open a new terminal to reload the `.bashrc` file. Alternatively, you can just always use `~/.local/bin/bitcoin-submittx` to execute the script instead of `bitcoin-submittx`.
+and then open a new terminal to reload the `.bashrc` file. Alternatively, you can always use `~/.local/bin/bitcoin-submittx` to execute the script instead of just `bitcoin-submittx`.
 
 
 Usage
@@ -105,7 +106,7 @@ options:
                         before submitting. (default: False)
 ```
 
-The tool will connect to the provided nodes and announce the transactions. If the
+The tool will connect to nodes and announce the transactions. If the
 nodes subsequently request them within the timeout, they are sent.
 
 The return status of the program will be 0 if at least one node requested the transaction, and 1
