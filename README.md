@@ -23,7 +23,7 @@ Install bitcoin-submittx:
 
 `pip3 install git+https://github.com/AndySchroder/bitcoin-submittx`
 
-If this is the first time you've installed a python script with pip, `bitcoin-submittx` may not be found and you will need to add `~/.local/bin` to your PATH variable. To do this, you can use the following command:
+If this is the first time you've installed a python script with pip, `bitcoin-submittx` may not be found and `~/.local/bin` will need to be added to your PATH variable. On some newer systems, this may be as simple as logging out and logging back into your desktop environment [1](https://askubuntu.com/questions/1144231/home-local-bin-not-in-path-for-ubuntu-19-04),[2](https://askubuntu.com/questions/566399/why-isnt-profile-sourced-when-opening-a-terminal). Or, if you are using ssh, just log out and log back in. If this does not work, you can manually add `~/.local/bin` to your PATH variable using the following command:
 
 `echo "export PATH=$HOME/.local/bin:$PATH">>~/.bashrc`
 
