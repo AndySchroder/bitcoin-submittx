@@ -539,7 +539,7 @@ def main():
             txdata = unhexlify(txdata)
             tx = CTransaction.deserialize(txdata)
             transactions[tx.GetTxid()] = tx             # this approach also happens to remove duplicate transactions
-            AlwaysPrintIfNotTrueElseLogInfo3(args.yes,'txid: '+tx.GetTxid()[::-1].hex()+'\ntx_hex: \n'+txdata.hex()+'\n\n')
+            AlwaysPrintIfNotTrueElseLogInfo3(args.yes,'txid: '+tx.GetTxid()[::-1].hex()+'\ntx_hex: \n'+txdata.hex()+'\n\n')                             # note the [::-1] is used to reverse the byte order. see also https://learnmeabitcoin.com/technical/general/byte-order/ .
         if not args.yes and input('Would you like to continue? Please enter the word `yes` to continue, anything else to abort: ').lower()!='yes':
             logging.error('`yes` not received, aborting.')
             exit(1)
